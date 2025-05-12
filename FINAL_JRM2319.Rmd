@@ -4,4 +4,142 @@ output: pdf_document
 Name: Jasmin Martinez
 Date: 05/12/2025
 ---
+# Read in data:
+```{r}
+flu = read.csv("severe_flu.csv")
+head(flu)
+```
+
+# Libraries:
+```{r}
+library(caret)
+library(tidymodels)
+library(splines)
+library(mgcv)
+library(pdp)
+library(earth)
+library(tidyverse)
+library(ggplot2)
+library(bayesQR) 
+library(dplyr)
+```
+# Factors 
+```{r}
+flu <- flu %>%
+  mutate(
+    gender = factor(gender, levels = c(0, 1), labels = c("Female", "Male")),
+    race = factor(race, levels = c(1, 2, 3, 4), labels = c("White", "Asian", "Black", "Hispanic")),
+    smoking = factor(smoking, levels = c(0, 1, 2), labels = c("Never smoked", "Former smoker", "Current smoker")),
+    diabetes = factor(diabetes, levels = c(0, 1), labels = c("No", "Yes")),
+    hypertension = factor(hypertension, levels = c(0, 1), labels = c("No", "Yes")),
+    severe_flu = factor(severe_flu, levels = c(0, 1), labels = c("No", "Yes"))
+  )
+
+```
+
+# Exploratory analysis: 
+```{r}
+# observe first couple of rows
+head(flu)
+str(flu)
+summary(flu)
+
+#checking for missing 
+colSums(is.na(flu))
+
+# checking for duplicates 
+sum(duplicated(flu))
+```
+
+## Bar Plot for distribution of severe flu
+```{r}
+ggplot(flu, aes(x = severe_flu)) + 
+  geom_bar(fill = "green", alpha = 0.5) + 
+  theme_minimal() + 
+  labs(title = "Distribution of Severe Flu Cases",
+       x = "Severe Flu",
+       y = "Count")
+
+```
+
+## Summarizing continous variables
+```{r}
+summary(flu[, c("age", "height", "weight", "bmi", "SBP", "LDL")])
+```
+
+## Summarizing categorical variables distribution among those with severe fu vs. without severe flu
+```{r}
+# For gender
+flu %>%
+  group_by(severe_flu, gender) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(severe_flu) %>%
+  mutate(proportion = count / sum(count))
+
+# For race
+flu %>%
+  group_by(severe_flu, race) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(severe_flu) %>%
+  mutate(proportion = count / sum(count))
+
+# For smoking
+flu %>%
+  group_by(severe_flu, smoking) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(severe_flu) %>%
+  mutate(proportion = count / sum(count))
+
+# For diabetes
+flu %>%
+  group_by(severe_flu, diabetes) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(severe_flu) %>%
+  mutate(proportion = count / sum(count))
+
+# For hypertension
+flu %>%
+  group_by(severe_flu, hypertension) %>%
+  summarize(count = n(), .groups = "drop") %>%
+  group_by(severe_flu) %>%
+  mutate(proportion = count / sum(count))
+```
+
+## Assessing correlation among continuous variables
+```{r}
+cor(flu[, c("age", "height", "weight", "bmi", "SBP", "LDL")])
+```
+
+## Asses relationship between severe flu and continous variables
+```{r}
+ggplot(flu, aes(x = severe_flu, y = age)) +
+  geom_boxplot(fill = "lightpink") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "Age")
+
+ggplot(flu, aes(x = severe_flu, y = height)) +
+  geom_boxplot(fill = "lightblue") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "Height")
+
+ggplot(flu, aes(x = severe_flu, y = weight)) +
+  geom_boxplot(fill = "lightgreen") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "Weight")
+
+ggplot(flu, aes(x = severe_flu, y = bmi)) +
+  geom_boxplot(fill = "orange") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "BMI")
+
+ggplot(flu, aes(x = severe_flu, y = SBP)) +
+  geom_boxplot(fill = "mediumorchid1") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "SBP")
+
+ggplot(flu, aes(x = severe_flu, y = LDL)) +
+  geom_boxplot(fill = "red3") +
+  theme_minimal() +
+  labs(x = "Severe Flu", y = "LDL")
+```
 
