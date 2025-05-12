@@ -142,4 +142,8 @@ ggplot(flu, aes(x = severe_flu, y = LDL)) +
   theme_minimal() +
   labs(x = "Severe Flu", y = "LDL")
 ```
+# Part 1: Evaluating whether boosting and SVM provide superior predictive performance compared to simpler models.
 
+# Part 2: Developing a predictive risk score (i.e., the predicted probability) that quantifies the chance of experiencing severe flu based on individual participant characteristics.
+
+# Part 3: Identifying key demographic and clinical factors that predict the risk of severe flu and assessing how these factors influence the risk.
