@@ -22,16 +22,31 @@ library(tidyverse)
 library(ggplot2)
 library(bayesQR) 
 library(dplyr)
+library(ISLR)
+library(mlbench)
+library(randomForest)
+library(ranger)
+library(gbm)
+library(rpart)
+library(rpart.plot)
+library(party)
+library(partykit)
+library(pROC)
+library(e1071) 
+library(kernlab) 
+library(ggrepel)
+library(corrplot)
+library(plotmo)
 ```
 # Factors 
 ```{r}
 flu <- flu %>%
   mutate(
-    gender = factor(gender, levels = c(0, 1), labels = c("Female", "Male")),
-    race = factor(race, levels = c(1, 2, 3, 4), labels = c("White", "Asian", "Black", "Hispanic")),
-    smoking = factor(smoking, levels = c(0, 1, 2), labels = c("Never smoked", "Former smoker", "Current smoker")),
-    diabetes = factor(diabetes, levels = c(0, 1), labels = c("No", "Yes")),
-    hypertension = factor(hypertension, levels = c(0, 1), labels = c("No", "Yes")),
+    #gender = factor(gender, levels = c(0, 1), labels = c("Female", "Male")),
+    #race = factor(race, levels = c(1, 2, 3, 4), labels = c("White", "Asian", "Black", "Hispanic")),
+    #smoking = factor(smoking, levels = c(0, 1, 2), labels = c("Never smoked", "Former smoker", "Current smoker")),
+    #diabetes = factor(diabetes, levels = c(0, 1), labels = c("No", "Yes")),
+    #hypertension = factor(hypertension, levels = c(0, 1), labels = c("No", "Yes")),
     severe_flu = factor(severe_flu, levels = c(0, 1), labels = c("No", "Yes"))
   )
 
@@ -142,8 +157,421 @@ ggplot(flu, aes(x = severe_flu, y = LDL)) +
   theme_minimal() +
   labs(x = "Severe Flu", y = "LDL")
 ```
-# Part 1: Evaluating whether boosting and SVM provide superior predictive performance compared to simpler models.
+# Data Paritioning: 
+```{r}
+datSplit = initial_split(data = flu, prop = 0.8)
+flu_train = training(datSplit)
+flu_test = testing(datSplit)
+head(flu_train)
+head(flu_test)
+```
+
+# Part 1: Evaluating whether boosting and SVM provide superior predictive performance compared to simpler models. 
+
+## Simple Model 1: GLM
+```{r}
+set.seed(1)
+#build logistic regression w/ training dataset 
+model_logit = glm(severe_flu ~ age + gender + race + smoking + height + weight + bmi +
+               diabetes + hypertension + SBP + LDL,
+             data = flu_train, family = binomial)
+
+summary(model_logit)
+
+# Predict probabilities and eval. accuracy of predicted values 
+pred_probs = predict(model_logit, newdata = flu_test, type = "response")
+pred_classes = ifelse(pred_probs > 0.5, 1, 0)
+actuals = flu_test[["severe_flu"]]  # safer than using $
+cm = table(Predicted = pred_classes, Actual = actuals)
+accuracy = sum(diag(cm)) / sum(cm)
+print(cm)
+print(accuracy)
+```
+GLM has an accuracy of 0.765. Low. 
+
+## Simple Model 2: Ridge
+```{r}
+x = model.matrix(severe_flu ~ . - id, flu_train)[,-1]
+y = flu_train[, "severe_flu"] 
+
+corrplot(cor(x), method = "circle", type = "full")
+
+# fitting Ridge regression using caret
+ctrl1 = trainControl(method = "cv", number = 10)
+set.seed(1)
+ridge.fit = train(severe_flu ~ . - id, 
+                   data = flu_train,
+                   method = "glmnet",
+                   tuneGrid = expand.grid(alpha = 0,
+                                          lambda = exp(seq(6, -5, length = 100))),
+                   trControl = ctrl1)
+
+plot(ridge.fit, xTrans = log)
+ridge.fit$bestTune
+coef(ridge.fit$finalModel, ridge.fit$bestTune$lambda)
+```
+
+## Simple Model 3: Lasso
+```{r}
+set.seed(1)
+lasso.fit = train(severe_flu ~ . - id,
+                  data = flu_train,
+                  method = "glmnet",
+                  tuneGrid = expand.grid(alpha = 1,
+                                         lambda = exp(seq(6, -5, length = 100))),
+                  trControl = ctrl1)
+
+lasso_tune = lasso.fit$bestTune
+plot(lasso.fit, xTrans = log)
+lasso_coef = coef(lasso.fit$finalModel, lasso.fit$bestTune$lambda)
+```
+## Simple Model 4: LDA
+```{r}
+ctrl3 = trainControl(method = "repeatedcv", repeats = 5,
+summaryFunction = twoClassSummary,
+classProbs = TRUE)
+
+set.seed(22)
+
+model.lda = train(x = flu_train[, c("age", "gender", "race", "smoking", "height", "weight", "bmi","diabetes", "hypertension", "SBP", "LDL")],  
+                  y = flu_train$severe_flu,
+                  method = "lda",
+                  metric = "ROC",
+                  trControl = ctrl3)
+
+print(model.lda)
+
+lda.pred2 = predict(model.lda, newdata = flu_test)
+```
+
+## Simple Model 6: MARS
+```{r}
+set.seed(1)
+x = model.matrix(severe_flu ~ age + gender + race + smoking + height + weight + bmi + diabetes + hypertension + SBP + LDL, data = flu_train)[, -1] 
+
+y = flu_train$severe_flu
+ctrl1 = trainControl(method = "cv", number = 10)
+mars_grid = expand.grid(degree = 1:4,
+                        nprune = 2:20)
+set.seed(2)
+mars.fit = train(x, y, method = "earth",
+                 tuneGrid = mars_grid, trControl = ctrl1) 
+ggplot(mars.fit)
+mars_tune = mars.fit$bestTune
+mars_coef = coef(mars.fit$finalModel)
+
+x_test = model.matrix(severe_flu ~ age + gender + race + smoking + height + weight + bmi + diabetes + hypertension + SBP + LDL, data = flu_test)[, -1]
+y_test = flu_test$severe_flu
+predictions = predict(mars.fit, newdata = x_test)
+mse = mean((predictions- y_test)^2)
+```
+
+## Simple Model 7: PLS
+```{r}
+length(setdiff(names(flu_train), c("severe_flu", "id")))
+
+set.seed(2)
+pls_fit <- train(severe_flu ~ . - id,
+          data = flu_train,
+          method = "pls",
+          tuneGrid = data.frame(ncomp = 1:11),
+          trControl = ctrl1,
+          preProcess = c("center", "scale"))
+          predy2_pls2 <- predict(pls_fit, newdata = flu_test)
+          mean((flu_test$severe_flu - predy2_pls2)^2)
+
+ggplot(pls_fit, highlight = TRUE)
+```
+
+## Modle 8: Boosting
+```{r}
+set.seed(1)
+bst = gbm(severe_flu ~ . - id,
+          data = flu_train,
+          distribution = "gaussian",
+          n.trees = 5000,
+          interaction.depth = 2,
+          shrinkage = 0.005, 
+          cv.folds =10)
+
+gbm.perf(bst, method = "cv")
+```
+```{r}
+ctrl = trainControl(method = "cv")
+
+gbm.grid = expand.grid(n.trees = c(100,200,500,1000,2000,5000,10000),
+                        interaction.depth = 1:4,
+                        shrinkage = c(0.005,0.01,0.05),
+                        n.minobsinnode = c(10))
+
+set.seed(1)
+gbm.fit = train(severe_flu ~ . - id,
+                data = flu_train,
+                method = "gbm",
+                tuneGrid = gbm.grid,
+                trControl = ctrl,
+                verbose = FALSE
+                )
+
+ggplot(gbm.fit, highlight = TRUE)
+```
+```{r}
+summary(gbm.fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+```
+
+## Model 9; SVM-Linear 
+```{r}
+set.seed(1)
+radial.tune = tune.svm(severe_flu ~ . - id,
+                        data = flu_train,
+                        kernel = "radial",
+                        cost = exp(seq(1, 7, len = 50)),
+                        gamma = exp(seq(-10, -2,len = 20)))
+                        plot(radial.tune, transform.y = log, transform.x = log,
+                        color.palette = terrain.colors)
+
+radial.tune$best.parameters
+best.radial = radial.tune$best.model
+summary(best.radial)
+pred.radial = predict(best.radial, newdata = flu_test)
+confusionMatrix(data = pred.radial,
+                reference = testing_data$diabetes)
+```
+
+## Model 10: SVM-Radial 
+```{r}
+set.seed(1)
+radial.tune = tune.svm(severe_flu ~ . - id,
+                data = flu_train,
+                kernel = "radial",
+                cost = exp(seq(1, 7, len = 50)),
+                gamma = exp(seq(-10, -2,len = 20)))
+plot(radial.tune, transform.y = log, transform.x = log,
+color.palette = terrain.colors)
+```
+```{r}
+radial.tune$best.parameters
+
+best.radial = radial.tune$best.model
+summary(best.radial)
+
+pred.radial = predict(best.radial, newdata = flu_test)
+confusionMatrix(data = pred.radial,
+reference = flu_test$severe_flu)
+```
+
+## Cross Validation for comparison: 
+```{r}
+set.seed(1)
+
+ctrl_cv = trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+
+flu_train = flu_train %>% select(-id)
+
+model_list = list()
+results = data.frame(Model = character(), ROC = numeric(), stringsAsFactors = FALSE)
+
+# Model 1: GLM
+model_list$GLM = train(severe_flu ~ ., data = flu_train, method = "glm", family = "binomial",
+                       trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "GLM", ROC = max(model_list$GLM$results$ROC)))
+
+# Model 2: Ridge
+model_list$Ridge = train(severe_flu ~ ., data = flu_train, method = "glmnet",
+                         tuneGrid = expand.grid(alpha = 0, lambda = exp(seq(6, -5, length = 100))),
+                         trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "Ridge", ROC = max(model_list$Ridge$results$ROC)))
+
+# Model 3: Lasso
+model_list$Lasso = train(severe_flu ~ ., data = flu_train, method = "glmnet",
+                         tuneGrid = expand.grid(alpha = 1, lambda = exp(seq(6, -5, length = 100))),
+                         trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "Lasso", ROC = max(model_list$Lasso$results$ROC)))
+
+# Model 4: LDA
+model_list$LDA = train(severe_flu ~ ., data = flu_train, method = "lda",
+                       trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "LDA", ROC = max(model_list$LDA$results$ROC)))
+
+# Model 5: GAM — commented out
+# flu_train$age <- as.numeric(flu_train$age)
+# model_list$GAM = train(severe_flu ~ s(age) + gender + race + smoking + height + weight +
+#                        s(bmi) + diabetes + hypertension + s(SBP) + s(LDL),
+#                        data = flu_train, method = "gam",
+#                        trControl = ctrl_cv, metric = "ROC")
+# results = rbind(results, data.frame(Model = "GAM", ROC = max(model_list$GAM$results$ROC)))
+
+# Model 6: MARS
+model_list$MARS = train(severe_flu ~ ., data = flu_train, method = "earth",
+                        tuneLength = 10, trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "MARS", ROC = max(model_list$MARS$results$ROC)))
+
+# Model 7: PLS
+model_list$PLS = train(severe_flu ~ ., data = flu_train, method = "pls",
+                       tuneLength = 15, preProcess = c("center", "scale"),
+                       trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "PLS", ROC = max(model_list$PLS$results$ROC)))
+
+# Model 8: Boosting (GBM)
+model_list$GBM = train(severe_flu ~ ., data = flu_train, method = "gbm",
+                       trControl = ctrl_cv, metric = "ROC", verbose = FALSE)
+results = rbind(results, data.frame(Model = "Boosting", ROC = max(model_list$GBM$results$ROC)))
+
+# Model 9: SVM - Linear
+model_list$SVM_Linear = train(severe_flu ~ ., data = flu_train, method = "svmLinear",
+                              trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "SVM-Linear", ROC = max(model_list$SVM_Linear$results$ROC)))
+
+# Model 10: SVM - Radial
+model_list$SVM_Radial = train(severe_flu ~ ., data = flu_train, method = "svmRadial",
+                               trControl = ctrl_cv, metric = "ROC")
+results = rbind(results, data.frame(Model = "SVM-Radial", ROC = max(model_list$SVM_Radial$results$ROC)))
+
+results = results %>%
+  arrange(desc(ROC))
+
+print(results)
+```
 
 # Part 2: Developing a predictive risk score (i.e., the predicted probability) that quantifies the chance of experiencing severe flu based on individual participant characteristics.
+Given the Ridge regression model had the best ROC, that is the model that will be used to build the predictive risk score. 
+```{r}
+library(glmnet)
+
+x = model.matrix(severe_flu ~ . - id, flu)[,-1]
+y = flu_train[, "severe_flu"] 
+
+ctrl1 = trainControl(method = "cv", number = 10)
+set.seed(1)
+
+ridge.fit = train(severe_flu ~ . - id, 
+                   data = flu,
+                   method = "glmnet",
+                   tuneGrid = expand.grid(alpha = 0,
+                                          lambda = exp(seq(6, -5, length = 100))),
+                   trControl = ctrl1)
+
+flu$predicted_risk_prob = predict(ridge.fit, newx = x, s = "lambda.min", type = "prob")[, "Yes"]
+```
 
 # Part 3: Identifying key demographic and clinical factors that predict the risk of severe flu and assessing how these factors influence the risk.
+```{r}
+# Load library
+library(glmnet)
+
+best_lambda = ridge.fit$bestTune$lambda
+
+ridge_glmnet = ridge.fit$finalModel
+
+coef_ridge = coef(ridge_glmnet, s = best_lambda)
+
+coef_df = as.data.frame(as.matrix(coef_ridge))
+coef_df$variable <- rownames(coef_df)
+colnames(coef_df)[1] <- "coefficient"
+coef_df = coef_df %>% 
+  filter(variable != "(Intercept)") %>% 
+  arrange(desc(abs(coefficient)))
+
+head(coef_df, 10)
+
+library(ggplot2)
+
+# Predicted riskby continuous variable
+ggplot(flu, aes(x = age, y = predicted_risk_prob)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Risk of Severe Flu by Age",
+       x = "Age", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = height, y = predicted_risk_prob)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Risk of Severe Flu by height ",
+       x = "Age", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = bmi, y = predicted_risk_prob)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Risk of Severe Flu by BMI ",
+       x = "Age", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = SBP, y = predicted_risk_prob)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Risk of Severe Flu by SBP",
+       x = "Age", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = LDL, y = predicted_risk_prob)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "loess") +
+  labs(title = "Predicted Risk of Severe Flu by LDL",
+       x = "Age", y = "Predicted Risk") +
+  theme_minimal()
+
+
+library(pdp)
+
+# Partial dependence plots (continous)
+pdp_age = partial(ridge.fit, pred.var = "age", train = flu, type = "classification", prob = TRUE)
+
+pdp_height = partial(ridge.fit, pred.var = "height", train = flu, type = "classification", prob = TRUE)
+
+pdp_weight = partial(ridge.fit, pred.var = "weight", train = flu, type = "classification", prob = TRUE)
+
+pdp_bmi = partial(ridge.fit, pred.var = "bmi", train = flu, type = "classification", prob = TRUE)
+
+pdp_SBP=partial(ridge.fit, pred.var = "SBP", train = flu, type = "classification", prob = TRUE)
+
+pdp_LDL=partial(ridge.fit, pred.var = "LDL", train = flu, type = "classification", prob = TRUE)
+
+pdp_gender = partial(ridge.fit, pred.var = "gender", train = flu, type = "classification", prob = TRUE)
+plotPartial(pdp_gender, main = "Partial Dependence: Gender")
+
+ggplot(flu, aes(x = factor(gender), y = predicted_risk_prob)) +
+  geom_boxplot(fill = "#F28E2B") +
+  labs(title = "Distribution of Predicted Risk by Gender",
+       x = "Gender", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = factor(race), y = predicted_risk_prob)) +
+  geom_boxplot(fill = "blue") +
+  labs(title = "Distribution of Predicted Risk by Gender",
+       x = "Race (1 = White, 2 = Asian, 3 = Black, 4 = Hispanic)", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = factor(smoking), y = predicted_risk_prob)) +
+  geom_boxplot(fill = "pink") +
+  labs(title = "Distribution of Predicted Risk by Gender",
+       x = "Smoking (0 = Never smoked, 1 = Former smoker, 2 = Current smoker)", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = factor(diabetes), y = predicted_risk_prob)) +
+  geom_boxplot(fill ="red") +
+  labs(title = "Distribution of Predicted Risk by Gender",
+       x = "diabetes (0 = No, 1 = Yes)", y = "Predicted Risk") +
+  theme_minimal()
+
+ggplot(flu, aes(x = factor(hypertension), y = predicted_risk_prob)) +
+  geom_boxplot(fill ="purple") +
+  labs(title = "Distribution of Predicted Risk by Gender",
+       x = "hypertension (0 = No, 1 = Yes)", y = "Predicted Risk") +
+  theme_minimal()
+
+plotPartial(pdp_age, main = "Partial Dependence: Age")
+plotPartial(pdp_height, main = "Partial Dependence: Height")
+plotPartial(pdp_weight, main = "Partial Dependence: weight")
+plotPartial(pdp_bmi, main = "Partial Dependence: BMI")
+plotPartial(pdp_SBP, main = "Partial Dependence: SBP")
+plotPartial(pdp_LDL, main = "Partial Dependence: LDL")
+```
+
