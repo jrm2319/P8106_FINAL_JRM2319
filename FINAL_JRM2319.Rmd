@@ -1,0 +1,7 @@
+---
+title: "Data Science II: Final Project- RMD and Knitted Files"
+output: pdf_document
+Name: Jasmin Martinez
+Date: 05/12/2025
+---
+
