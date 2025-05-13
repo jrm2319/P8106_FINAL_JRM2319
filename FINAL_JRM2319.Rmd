@@ -168,7 +168,7 @@ head(flu_test)
 
 # Part 1: Evaluating whether boosting and SVM provide superior predictive performance compared to simpler models. 
 
-## Simple Model 1: GLM
+## Model 1: GLM
 ```{r}
 set.seed(1)
 #build logistic regression w/ training dataset 
@@ -189,7 +189,7 @@ print(accuracy)
 ```
 GLM has an accuracy of 0.765. Low. 
 
-## Simple Model 2: Ridge
+## Model 2: Ridge
 ```{r}
 x = model.matrix(severe_flu ~ . - id, flu_train)[,-1]
 y = flu_train[, "severe_flu"] 
@@ -211,7 +211,7 @@ ridge.fit$bestTune
 coef(ridge.fit$finalModel, ridge.fit$bestTune$lambda)
 ```
 
-## Simple Model 3: Lasso
+## Model 3: Lasso
 ```{r}
 set.seed(1)
 lasso.fit = train(severe_flu ~ . - id,
@@ -225,7 +225,8 @@ lasso_tune = lasso.fit$bestTune
 plot(lasso.fit, xTrans = log)
 lasso_coef = coef(lasso.fit$finalModel, lasso.fit$bestTune$lambda)
 ```
-## Simple Model 4: LDA
+
+## Model 4: LDA
 ```{r}
 ctrl3 = trainControl(method = "repeatedcv", repeats = 5,
 summaryFunction = twoClassSummary,
@@ -244,7 +245,7 @@ print(model.lda)
 lda.pred2 = predict(model.lda, newdata = flu_test)
 ```
 
-## Simple Model 6: MARS
+## Model 5: MARS
 ```{r}
 set.seed(1)
 x = model.matrix(severe_flu ~ age + gender + race + smoking + height + weight + bmi + diabetes + hypertension + SBP + LDL, data = flu_train)[, -1] 
@@ -266,7 +267,7 @@ predictions = predict(mars.fit, newdata = x_test)
 mse = mean((predictions- y_test)^2)
 ```
 
-## Simple Model 7: PLS
+## Model 6: PLS
 ```{r}
 length(setdiff(names(flu_train), c("severe_flu", "id")))
 
@@ -283,7 +284,7 @@ pls_fit <- train(severe_flu ~ . - id,
 ggplot(pls_fit, highlight = TRUE)
 ```
 
-## Modle 8: Boosting
+## Modle 7: Boosting
 ```{r}
 set.seed(1)
 bst = gbm(severe_flu ~ . - id,
@@ -319,7 +320,7 @@ ggplot(gbm.fit, highlight = TRUE)
 summary(gbm.fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
 ```
 
-## Model 9; SVM-Linear 
+## Model 8; SVM-Linear 
 ```{r}
 set.seed(1)
 radial.tune = tune.svm(severe_flu ~ . - id,
@@ -335,10 +336,10 @@ best.radial = radial.tune$best.model
 summary(best.radial)
 pred.radial = predict(best.radial, newdata = flu_test)
 confusionMatrix(data = pred.radial,
-                reference = testing_data$diabetes)
+                reference = flu_test$severe_flu)
 ```
 
-## Model 10: SVM-Radial 
+## Model 9: SVM-Radial 
 ```{r}
 set.seed(1)
 radial.tune = tune.svm(severe_flu ~ . - id,
@@ -399,36 +400,28 @@ model_list$LDA = train(severe_flu ~ ., data = flu_train, method = "lda",
                        trControl = ctrl_cv, metric = "ROC")
 results = rbind(results, data.frame(Model = "LDA", ROC = max(model_list$LDA$results$ROC)))
 
-# Model 5: GAM — commented out
-# flu_train$age <- as.numeric(flu_train$age)
-# model_list$GAM = train(severe_flu ~ s(age) + gender + race + smoking + height + weight +
-#                        s(bmi) + diabetes + hypertension + s(SBP) + s(LDL),
-#                        data = flu_train, method = "gam",
-#                        trControl = ctrl_cv, metric = "ROC")
-# results = rbind(results, data.frame(Model = "GAM", ROC = max(model_list$GAM$results$ROC)))
-
-# Model 6: MARS
+# Model 5: MARS
 model_list$MARS = train(severe_flu ~ ., data = flu_train, method = "earth",
                         tuneLength = 10, trControl = ctrl_cv, metric = "ROC")
 results = rbind(results, data.frame(Model = "MARS", ROC = max(model_list$MARS$results$ROC)))
 
-# Model 7: PLS
+# Model 6: PLS
 model_list$PLS = train(severe_flu ~ ., data = flu_train, method = "pls",
                        tuneLength = 15, preProcess = c("center", "scale"),
                        trControl = ctrl_cv, metric = "ROC")
 results = rbind(results, data.frame(Model = "PLS", ROC = max(model_list$PLS$results$ROC)))
 
-# Model 8: Boosting (GBM)
+# Model 7: Boosting (GBM)
 model_list$GBM = train(severe_flu ~ ., data = flu_train, method = "gbm",
                        trControl = ctrl_cv, metric = "ROC", verbose = FALSE)
 results = rbind(results, data.frame(Model = "Boosting", ROC = max(model_list$GBM$results$ROC)))
 
-# Model 9: SVM - Linear
+# Model 8: SVM - Linear
 model_list$SVM_Linear = train(severe_flu ~ ., data = flu_train, method = "svmLinear",
                               trControl = ctrl_cv, metric = "ROC")
 results = rbind(results, data.frame(Model = "SVM-Linear", ROC = max(model_list$SVM_Linear$results$ROC)))
 
-# Model 10: SVM - Radial
+# Model 9: SVM - Radial
 model_list$SVM_Radial = train(severe_flu ~ ., data = flu_train, method = "svmRadial",
                                trControl = ctrl_cv, metric = "ROC")
 results = rbind(results, data.frame(Model = "SVM-Radial", ROC = max(model_list$SVM_Radial$results$ROC)))
